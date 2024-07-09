@@ -9,11 +9,14 @@
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
 import path from 'path';
-import { app, BrowserWindow, shell, ipcMain } from 'electron';
+import { app, BrowserWindow, shell, ipcMain, desktopCapturer } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
+import { exec } from 'child_process';
+import * as fs from 'fs';
+import { getInstalledApps } from './util';
 
 class AppUpdater {
   constructor() {
@@ -135,3 +138,41 @@ app
     });
   })
   .catch(console.log);
+
+function runAppleScript(scriptPath: string) {
+  exec(`osascript ${scriptPath}`, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`exec error: ${error}`);
+      return;
+    }
+    console.log(`stdout: ${stdout}`);
+    if (stderr) {
+      console.error(`stderr: ${stderr}`);
+    }
+
+    // Save the output to a file for further inspection
+    fs.writeFileSync(path.join(__dirname, 'output.txt'), stdout);
+  });
+}
+
+ipcMain.handle('get-running-programs', async () => {
+  const result = await getInstalledApps('/Applications');
+  console.log(result);
+
+  const scriptPath = path.join(__dirname, './getTabs.scpt');
+  runAppleScript(scriptPath);
+});
+
+function formatOutput(output: string, platform: NodeJS.Platform): string {
+  const lines = output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line);
+
+  if (platform === 'win32') {
+    // Remove the header and any empty lines
+    return lines.slice(1).join('\n');
+  } else {
+    return lines.join('\n');
+  }
+}
