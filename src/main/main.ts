@@ -155,24 +155,98 @@ function runAppleScript(scriptPath: string) {
   });
 }
 
+interface WindowInfo {
+  title: string;
+  application: string;
+}
+
+// function getOpenWindows(): Promise<WindowInfo[]> {
+//   return new Promise((resolve, reject) => {
+//     const command =
+//       'osascript -e \'tell application "System Events" to get name of every window of (every process whose visible is true)\'';
+
+//     exec(command, { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+//       if (error) {
+//         reject(error);
+//         return;
+//       }
+//       if (stderr) {
+//         reject(new Error(stderr));
+//         return;
+//       }
+
+//       const windows: WindowInfo[] = stdout
+//         .split(',')
+//         .map((title) => title.trim())
+//         .filter((title) => title.length > 0)
+//         .map((title) => ({ title }));
+
+//       resolve(windows);
+//     });
+//   });
+// }
+
+function getOpenWindows(): Promise<WindowInfo[]> {
+  return new Promise((resolve, reject) => {
+    const command = `
+      osascript -e '
+        tell application "System Events"
+          set allWindows to {}
+          set visibleProcesses to every process whose visible is true
+          repeat with proc in visibleProcesses
+            set procName to name of proc
+            set procWindows to every window of proc
+            repeat with win in procWindows
+              set end of allWindows to {title:name of win, app:procName}
+            end repeat
+          end repeat
+          return allWindows
+        end tell'
+    `;
+
+    exec(command, { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      if (stderr) {
+        reject(new Error(stderr));
+        return;
+      }
+
+      const windows: WindowInfo[] = stdout
+        .split(', ')
+        .reduce(
+          (acc: WindowInfo[], curr: string, index: number, array: string[]) => {
+            if (index % 2 === 0) {
+              const title = curr.replace(/^\{title:/, '').trim();
+              const application = array[index + 1]
+                .replace(/app:|}$/g, '')
+                .trim();
+              acc.push({ title, application });
+            }
+            return acc;
+          },
+          [],
+        );
+
+      resolve(windows);
+    });
+  });
+}
+
 ipcMain.handle('get-running-programs', async () => {
   const result = await getInstalledApps('/Applications');
-  console.log(result);
+  // console.log(result);
+  getOpenWindows()
+    .then((programs) => {
+      console.log('Running programs:', programs);
+      // Do something with the list of programs
+    })
+    .catch((error) => {
+      console.error('Error getting running programs:', error);
+    });
 
-  const scriptPath = path.join(__dirname, './getTabs.scpt');
-  runAppleScript(scriptPath);
+  // const scriptPath = path.join(__dirname, './getTabs.scpt');
+  // runAppleScript(scriptPath);
 });
-
-function formatOutput(output: string, platform: NodeJS.Platform): string {
-  const lines = output
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line);
-
-  if (platform === 'win32') {
-    // Remove the header and any empty lines
-    return lines.slice(1).join('\n');
-  } else {
-    return lines.join('\n');
-  }
-}
